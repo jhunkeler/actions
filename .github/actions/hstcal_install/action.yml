@@ -112,6 +112,9 @@ runs:
     - run: rm -rf ${{ github.workspace }}/hstcal/
       shell: bash
 
+    - run: echo "${{ inputs.prefix }}/bin" >> "$GITHUB_PATH"
+      shell: bash
+
 outputs:
   installdir:
     description: HSTCAL installation directory
