@@ -150,8 +150,12 @@ runs:
         path: ${{ env.HSTCAL_BUILD }}
         key: hstcal-${{ runner.os }}-${{ runner.arch }}-${{ steps.git_ref.outputs.ref }}
 
-    - run: rm -rf $HSTCAL_SOURCE
-      if: env.USE_CONDA == 'false'
+
+    - if: env.USE_CONDA == 'false'
+      run: |
+        if ! [[ "$HSTCAL_SOURCE" == "." ]]; then
+          rm -rf $HSTCAL_SOURCE
+        fi
       shell: bash
 
     - name: Add HSTCAL to PATH
