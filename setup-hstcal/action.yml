@@ -148,7 +148,7 @@ runs:
         path: ${{ env.HSTCAL_BUILD }}
         key: hstcal-${{ runner.os }}-${{ runner.arch }}-${{ steps.git_ref.outputs.ref }}
 
-    - run: rm -rf ${{ runner.temp }}/hstcal/
+    - run: rm -rf $HSTCAL_SOURCE
       if: env.USE_CONDA == 'false'
       shell: bash
 
