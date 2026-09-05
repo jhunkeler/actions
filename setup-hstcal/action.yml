@@ -60,10 +60,12 @@ runs:
         echo "HSTCAL_PREFIX=$HSTCAL_PREFIX" >> $GITHUB_ENV
     
     - name: Checkout HSTCAL source
-      if: env.USE_CONDA == 'false' || env.HSTCAL_SOURCE != '.'
+      if: env.USE_CONDA == 'false'
       run: |
-        git clone https://github.com/${{ inputs.git_repository }} $HSTCAL_SOURCE
-        (cd $HSTCAL_SOURCE && git checkout ${{ inputs.git_ref }})
+        if ! [[ "$HSTCAL_SOURCE" == "." ]]; then
+          git clone https://github.com/${{ inputs.git_repository }} $HSTCAL_SOURCE
+          (cd $HSTCAL_SOURCE && git checkout ${{ inputs.git_ref }})
+        fi
       shell: bash
 
     - id: git_ref
