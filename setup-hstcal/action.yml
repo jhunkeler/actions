@@ -1,0 +1,176 @@
+name: Install HSTCAL
+
+description: |
+  Installs HSTCAL using conda, or builds it from source
+
+inputs:
+  git_repository:
+    description: git repository
+    required: true
+    default: "spacetelescope/hstcal"
+
+  git_ref:
+    description: git branch / ref
+    required: false
+    default: ""
+
+  prefix:
+    description: HSTCAL installation prefix
+    required: false
+
+  build_type:
+    description: |
+      Type of build:
+        Release, RelWithDebInfo, Debug, or MinSizeRel
+    required: false
+    default: "RelWithDebInfo"
+
+  cmake_opts:
+    description: Additional CMake arguments
+    required: false
+    default: ""
+
+  make_opts:
+    description: Additional Make arguments
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: |
+        USE_CONDA=false
+        if [[ "${{ inputs.git_ref }}" =~ "conda" ]]; then
+          USE_CONDA=true
+        fi
+        echo "USE_CONDA=$USE_CONDA" >> $GITHUB_ENV
+
+        HSTCAL_SOURCE="."
+        if ! grep 'project(hstcal)' "$HSTCAL_SOURCE"/CMakeLists.txt &>/dev/null; then
+          HSTCAL_SOURCE="${{ runner.temp }}/hstcal-source"
+        fi
+        echo "HSTCAL_SOURCE=$HSTCAL_SOURCE" >> $GITHUB_ENV
+
+        HSTCAL_BUILD="$HSTCAL_SOURCE/build"
+        echo "HSTCAL_BUILD=$HSTCAL_BUILD" >> $GITHUB_ENV
+
+        HSTCAL_PREFIX="${{ inputs.prefix }}"
+        HSTCAL_PREFIX="${HSTCAL_PREFIX:-${{ runner.temp }}/hstcal}"
+        echo "HSTCAL_PREFIX=$HSTCAL_PREFIX" >> $GITHUB_ENV
+    
+    - name: Checkout HSTCAL source
+      if: env.USE_CONDA == 'false' || env.HSTCAL_SOURCE != '.'
+      run: |
+        git clone https://github.com/${{ inputs.git_repository }} $HSTCAL_SOURCE
+        (cd $HSTCAL_SOURCE && git checkout ${{ inputs.git_ref }})
+      shell: bash
+
+    - id: git_ref
+      if: env.USE_CONDA == 'false'
+      run: echo ref=$(git describe) >> $GITHUB_OUTPUT
+      working-directory: ${{ env.HSTCAL_SOURCE }}
+      shell: bash
+
+    - name: Install HSTCAL dependencies
+      if: env.USE_CONDA == 'false'
+      run: |
+        if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt update
+            sudo apt install -y \
+                cmake \
+                libcfitsio-dev \
+                pkg-config
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew update
+            brew install \
+                cmake
+                gcc
+                cfitsio
+                pkg-config
+        fi
+      shell: bash
+
+    - name: Restore previous build
+      if: env.USE_CONDA == 'false'
+      id: is-built-already
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ env.HSTCAL_BUILD }}
+        key: hstcal-${{ runner.os }}-${{ runner.arch }}-${{ steps.git_ref.outputs.ref }}
+    
+    - if: steps.is-built-already.outputs.cache-hit != 'true' && env.USE_CONDA == 'false'
+      name: Clear previous build
+      run: |
+        rm -rf ${{ env.HSTCAL_BUILD }}
+        mkdir -p ${{ env.HSTCAL_BUILD }}
+      shell: bash 
+    
+    - if: steps.is-built-already.outputs.cache-hit != 'true' && env.USE_CONDA == 'false'
+      name: Build HSTCAL
+      run: |
+        make_opts="${{ inputs.make_opts }}"
+        cmake_opts="${{ inputs.cmake_opts }}"
+        cmake .. \
+            -DCMAKE_INSTALL_PREFIX="$HSTCAL_PREFIX" \
+            -DCMAKE_BUILD_TYPE="${{ inputs.build_type }}" \
+            ${cmake_opts}
+        make ${make_opts}
+      shell: bash
+      working-directory: ${{ env.HSTCAL_BUILD }}
+
+
+    - name: Install HSTCAL (conda)
+      if: env.USE_CONDA == 'true'
+      run:
+        # inputs.git_ref "conda major.minor.patch" toggled USE_CONDA, so extract major.minor.patch
+        version="=$(awk -F' ' '{ print $2 }' <<< "${{ inputs.git_ref }}")"
+        cmd="micromamba install hstcal"
+        if ! [ "$version" == "=" ]; then
+            cmd+="${version}"
+        fi
+        $cmd
+      shell: micromamba-shell {0}
+
+    - name: Install HSTCAL (source)
+      if: env.USE_CONDA == 'false'
+      id: install-hstcal
+      run: |
+        make install
+        echo "installdir=$HSTCAL_PREFIX" >> $GITHUB_OUTPUT
+        echo "bindir=$HSTCAL_PREFIX/bin" >> $GITHUB_OUTPUT
+      shell: bash
+      working-directory: ${{ env.HSTCAL_BUILD }}
+
+    - if: steps.is-built-already.outputs.cache-hit != 'true' && env.USE_CONDA == 'false'
+      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ env.HSTCAL_BUILD }}
+        key: hstcal-${{ runner.os }}-${{ runner.arch }}-${{ steps.git_ref.outputs.ref }}
+
+    - run: rm -rf ${{ runner.temp }}/hstcal/
+      if: env.USE_CONDA == 'false'
+      shell: bash
+
+    - name: Add HSTCAL to PATH
+      if: env.USE_CONDA == 'false'
+      run: echo "$HSTCAL_PREFIX/bin" >> "$GITHUB_PATH"
+      shell: bash
+
+    - name: Define HST reference file variables
+      run: |
+        echo "iref=/grp/hst/cdbs/iref/" >> $GITHUB_ENV
+        echo "jref=/grp/hst/cdbs/jref/" >> $GITHUB_ENV
+        echo "lref=/grp/hst/cdbs/lref/" >> $GITHUB_ENV
+        echo "oref=/grp/hst/cdbs/oref/" >> $GITHUB_ENV
+        echo "uref=/grp/hst/cdbs/uref/" >> $GITHUB_ENV
+      shell: bash
+
+outputs:
+  installdir:
+    description: HSTCAL installation directory
+    value: ${{ steps.install-hstcal.outputs.installdir }}
+
+  bindir:
+    description: HSTCAL bin directory
+    value: ${{ steps.install-hstcal.outputs.bindir }}
